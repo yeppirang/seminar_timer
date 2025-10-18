@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>커스텀 타이머</title>
+  <style>
+    :root{
+      --bg:#0f172a;        /* slate-900 */
+      --panel:#111827cc;   /* gray-900 with alpha */
+      --text:#e5e7eb;      /* gray-200 */
+      --muted:#94a3b8;     /* slate-400 */
+      --accent:#38bdf8;    /* sky-400 */
+      --warn:#f59e0b;      /* amber-500 */
+      --danger:#ef4444;    /* red-500 */
+      --ok:#10b981;        /* emerald-500 */
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; background:radial-gradient(1200px 800px at 10% 10%, #111827 0%, var(--bg) 55%), #0b1024;
+      color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+      display:grid; place-items:center; padding:24px;
+      transition: background-color .3s ease, color .3s ease;
+    }
+    .app{width:min(980px, 100%);} 
+
+    .card{background:var(--panel); backdrop-filter: blur(10px); border:1px solid #1f2937; border-radius:18px; padding:22px; box-shadow:0 10px 30px #0006}
+
+    .row{display:flex; gap:12px; flex-wrap:wrap; align-items:end}
+    .col{flex:1 1 160px}
+    label{display:block; font-size:.88rem; color:var(--muted); margin:0 0 6px 4px}
+    input[type="number"]{width:100%; padding:14px 12px; font-size:1.05rem; border-radius:12px; border:1px solid #334155; background:#0b1222; color:var(--text); outline:none}
+    input[type="number"]:focus{border-color:var(--accent); box-shadow:0 0 0 3px #38bdf833}
+
+    .btns{display:flex; gap:10px; flex-wrap:wrap; margin-top:14px}
+    button{appearance:none; border:none; padding:12px 16px; border-radius:12px; font-weight:700; cursor:pointer; color:#0b1222; background:var(--accent)}
+    button.secondary{background:#1f2937; color:var(--text); border:1px solid #334155}
+    button.danger{background:var(--danger); color:white}
+    button:disabled{opacity:.6; cursor:not-allowed}
+
+    .screen{display:grid; place-items:center; text-align:center; margin-top:18px; padding:28px; border-radius:18px; border:1px dashed #263243}
+    .time{font-variant-numeric:tabular-nums; font-size:clamp(48px, 10vw, 108px); letter-spacing:.04em; line-height:1;}
+    .subtitle{color:var(--muted); margin-top:8px; min-height:1.5em}
+
+    .badges{display:flex; gap:8px; justify-content:center; margin-top:10px; flex-wrap:wrap}
+    .badge{border:1px solid #334155; padding:6px 10px; border-radius:999px; font-size:.85rem; color:var(--muted)}
+
+    /* Banners */
+    .banner{position:fixed; left:50%; transform:translateX(-50%); bottom:24px; background:#0b1222ee; border:1px solid #334155; padding:12px 16px; border-radius:12px; display:flex; gap:10px; align-items:center; box-shadow:0 8px 20px #0008; z-index:50}
+    .banner.warn{border-color:var(--warn)}
+    .banner.danger{border-color:var(--danger)}
+    .banner .dot{width:10px; height:10px; border-radius:50%; background:var(--warn)}
+    .banner.danger .dot{background:var(--danger)}
+
+    /* Blink (reduced motion safe) */
+    @media (prefers-reduced-motion: no-preference){
+      .blink .screen{animation: flash 1.25s steps(2) infinite}
+    }
+    @keyframes flash{ 50% { filter:brightness(1.35) saturate(1.15) } }
+
+    /* Strong text blink (for 3-minute warning) */
+    @media (prefers-reduced-motion: no-preference){
+      .blinkTextStrong .screen *{ animation: strobe 0.6s steps(2) infinite }
+    }
+    @keyframes strobe{ 50% { opacity: .2; filter: saturate(1.4) contrast(1.1) } }
+
+    /* 1-minute danger state */
+    .dangerTime .time{ color: var(--danger); text-shadow: 0 0 12px #ef444455, 0 0 28px #ef444422 }
+    .banner.big{ font-size: clamp(20px, 4vw, 48px); padding: 18px 24px }
+
+    /* Overtime styling */
+    .overtime .time{color:var(--ok)}
+    .overtime .subtitle::before{content:"초과 시간 "; color:var(--ok)}
+
+    /* Compact on mobile */
+    @media (max-width:560px){
+      .row{gap:10px}
+      .col{flex:1 1 120px}
+      .btns{gap:8px}
+      .screen{padding:18px}
+    }
+
+    /* Diagnostics */
+    .tests{margin-top:14px; font-size:.9rem; color:var(--muted)}
+    .tests details{border:1px dashed #334155; border-radius:12px; padding:10px 12px}
+    .pass{color:#22c55e}
+    .fail{color:#ef4444}
+  </style>
+</head>
+<body>
+  <div class="app card" role="application" aria-labelledby="title">
+    <h1 id="title" style="margin:0 0 14px 2px; font-size:1.25rem; color:var(--text)">⏱️ 커스텀 타이머</h1>
+
+    <div class="row" aria-label="타이머 설정">
+      <div class="col">
+        <label for="h">시 (hours)</label>
+        <input id="h" type="number" min="0" step="1" value="0" />
+      </div>
+      <div class="col">
+        <label for="m">분 (minutes)</label>
+        <input id="m" type="number" min="0" step="1" value="25" />
+      </div>
+      <div class="col">
+        <label for="s">초 (seconds)</label>
+        <input id="s" type="number" min="0" step="1" value="0" />
+      </div>
+      <div class="col">
+        <label for="blinkAt">깜빡임 시작 시점 (남은 분)</label>
+        <input id="blinkAt" type="number" min="0" step="1" value="3" />
+      </div>
+    </div>
+
+    <div class="btns" aria-label="컨트롤 버튼">
+      <button id="startBtn">시작</button>
+      <button id="pauseBtn" class="secondary" disabled>일시정지(스페이스)</button>
+      <button id="resetBtn" class="danger">리셋(R)</button>
+    </div>
+
+    <div class="screen" aria-live="polite" aria-atomic="true">
+      <div class="time" id="timeDisplay">00:25:00</div>
+      <div class="subtitle" id="subtitle">준비되면 <strong>시작</strong>을 누르세요</div>
+      <div class="badges" id="badges">
+        <div class="badge">5분 남음: 강조 배너</div>
+        <div class="badge">1분 남음: <span style="color:var(--danger)">빨간</span> 배너</div>
+        <div class="badge">완료 후: +초과시간 표시</div>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" style="display:none" role="status" aria-live="assertive">
+      <div class="dot" aria-hidden="true"></div>
+      <div id="bannerText">알림</div>
+    </div>
+
+    <div class="tests">
+      <details>
+        <summary>진단 / 테스트 보기</summary>
+        <ul id="testList"></ul>
+      </details>
+    </div>
+  </div>
+
+  <script>
+    const pad = (n)=> String(n).padStart(2,'0');
+    const $ = (id)=> document.getElementById(id);
+
+    const h = $('h');
+    const m = $('m');
+    const s = $('s');
+    const blinkAt = $('blinkAt');
+
+    const timeDisplay = $('timeDisplay');
+    const subtitle = $('subtitle');
+    const banner = $('banner');
+    const bannerText = $('bannerText');
+
+    const startBtn = $('startBtn');
+    const pauseBtn = $('pauseBtn');
+    const resetBtn = $('resetBtn');
+
+    let totalMs = 0;          // 설정된 전체 밀리초
+    let endAt = null;         // 종료 예정 시각 (Epoch ms)
+    let timer = null;         // setInterval 핸들
+    let paused = true;
+    let overtime = false;     // 종료 후 초과 카운트 중인지
+
+    let shown5 = false;       // 5분 배너 이미 표시했는지
+    let shown3 = false;       // 3분 강렬 깜빡임 적용 여부
+    let shown1 = false;       // 1분 배너 이미 표시했는지
+
+    function calcTotalMs(){
+      const hh = Math.max(0, parseInt(h.value||0,10));
+      const mm = Math.max(0, parseInt(m.value||0,10));
+      const ss = Math.max(0, parseInt(s.value||0,10));
+      return ((hh*3600)+(mm*60)+ss)*1000;
+    }
+
+    function formatHMS(ms){
+      const neg = ms < 0; ms = Math.abs(ms);
+      const t = Math.floor(ms/1000);
+      const HH = Math.floor(t/3600);
+      const MM = Math.floor((t%3600)/60);
+      const SS = t%60;
+      return (neg?'-':'') + pad(HH)+":"+pad(MM)+":"+pad(SS);
+    }
+
+    function updateDisplay(remMs){
+      if(!overtime){
+        timeDisplay.textContent = formatHMS(Math.max(0, remMs));
+      }else{
+        const over = Date.now() - endAt; // 양수
+        timeDisplay.textContent = '+' + formatHMS(over);
+      }
+    }
+
+    function setSubtitle(msg=''){ subtitle.innerHTML = msg; }
+
+    function showBanner(type, msg){
+      banner.classList.remove('warn','danger','big');
+      if(type==='warn') banner.classList.add('warn');
+      if(type==='danger') banner.classList.add('danger');
+      bannerText.textContent = msg;
+      banner.style.display = 'flex';
+      // 3.5초 후 자동 닫힘
+      clearTimeout(showBanner._t);
+      showBanner._t = setTimeout(()=>{ banner.style.display='none'; banner.classList.remove('big'); }, 3500);
+    }
+
+    function start(){
+      totalMs = calcTotalMs();
+      if(totalMs <= 0){ setSubtitle('0보다 큰 시간을 설정하세요'); return; }
+
+      const now = Date.now();
+      if(paused && !endAt){ // 처음 시작
+        endAt = now + totalMs;
+      }else if(paused && endAt){ // 일시정지 후 재개
+        const remaining = Math.max(0, endAt - now);
+        endAt = now + remaining;
+      }
+
+      paused = false; overtime = false;
+      document.body.classList.remove('overtime');
+      pauseBtn.disabled = false;
+      startBtn.textContent = '재시작';
+      run();
+    }
+
+    function run(){
+      clearInterval(timer);
+      timer = setInterval(()=>{
+        const now = Date.now();
+        let rem = endAt - now; // 남은 시간 (음수면 초과)
+
+        // Blink 조건: 남은 시간이 설정값 이하이면 기본 깜빡임 (화면 강조)
+        const blinkMin = Math.max(0, parseInt(blinkAt.value||0,10));
+        if(rem > 0 && rem <= blinkMin*60*1000){
+          document.body.classList.add('blink');
+        }else{
+          document.body.classList.remove('blink');
+        }
+
+        // === 새 규칙 ===
+        // 3분 경고: 글자 전체 강렬 깜빡임 (screen 영역)
+        if(rem > 60*1000 && rem <= 3*60*1000){
+          if(!shown3){ shown3 = true; }
+          document.body.classList.add('blinkTextStrong');
+        }else{
+          document.body.classList.remove('blinkTextStrong');
+        }
+
+        // 5분/1분 알림 (카운트다운 중에만)
+        if(rem > 0){
+          const min = Math.ceil(rem/60000);
+          if(min === 5 && !shown5){
+            shown5 = true;
+            showBanner('warn','5분 남았습니다!');
+            setSubtitle('<strong style="color:var(--warn)">5분 남음</strong> – 마무리 준비하세요');
+          }
+          if(min === 1 && !shown1){
+            shown1 = true;
+            showBanner('danger','1분 남았습니다!');
+            banner.classList.add('big');           // 더 크게 표시
+            document.body.classList.add('dangerTime'); // 타이머 빨간색
+            setSubtitle('<strong style="color:var(--danger); font-size:1.1em">1분 남음</strong> – 최종 정리!');
+          }
+        }
+
+        // 종료/초과 처리
+        if(rem <= 0){
+          if(!overtime){ // 막 끝난 순간 1회 처리
+            overtime = true;
+            document.body.classList.add('overtime');
+            document.body.classList.add('blink'); // 끝나도 계속 시인성 유지
+            document.body.classList.remove('blinkTextStrong');
+            showBanner('danger','시간 종료! 초과 시간을 표시합니다.');
+            setSubtitle('종료됨 — <em>초과 시간</em> 집계 중');
+          }
+          updateDisplay(0);
+        }else{
+          updateDisplay(rem);
+        }
+      }, 200); // 5Hz 업데이트로 성능/정확도 균형
+    }
+
+    function pause(){
+      if(paused) return;
+      paused = true; clearInterval(timer);
+      document.body.classList.remove('blink');
+      setSubtitle('일시정지됨 — 재시작하려면 <strong>재시작</strong>');
+      pauseBtn.disabled = true;
+    }
+
+    function reset(){
+      paused = true; overtime = false; clearInterval(timer);
+      endAt = null; shown5 = false; shown3 = false; shown1 = false;
+      document.body.classList.remove('blink','overtime','blinkTextStrong','dangerTime');
+      startBtn.textContent = '시작';
+      pauseBtn.disabled = true;
+      const ms = calcTotalMs();
+      timeDisplay.textContent = formatHMS(ms);
+      setSubtitle('준비되면 <strong>시작</strong>을 누르세요');
+      banner.style.display = 'none';
+    }
+
+    // 초기 표시
+    timeDisplay.textContent = formatHMS(calcTotalMs());
+
+    // 이벤트 바인딩
+    startBtn.addEventListener('click', ()=>{ start(); pauseBtn.disabled = false; });
+    pauseBtn.addEventListener('click', pause);
+    resetBtn.addEventListener('click', reset);
+
+    // 입력 변경 시 표시 업데이트 (정지 상태에서)
+    [h,m,s].forEach(el=> el.addEventListener('input', ()=>{
+      if(endAt===null){ timeDisplay.textContent = formatHMS(calcTotalMs()); }
+    }));
+
+    // 키보드 단축키: Space = 시작/일시정지, R = 리셋
+    window.addEventListener('keydown', (e)=>{
+      if(e.code==='Space'){
+        e.preventDefault();
+        if(paused){ start(); pauseBtn.disabled = false; }
+        else{ pause(); }
+      }
+      if(e.key==='r' || e.key==='R'){ reset(); }
+    });
+
+    // 페이지 가시성 변경 시 타이밍 보정 (백그라운드 탭 지연 대비)
+    document.addEventListener('visibilitychange', ()=>{
+      if(!paused && endAt){ run(); }
+    });
+
+    // ----------------------------
+    // 간단 테스트 (콘솔/화면)
+    // ----------------------------
+    function addResult(ok, msg){
+      const li = document.createElement('li');
+      li.className = ok? 'pass' : 'fail';
+      li.textContent = (ok? '✓ ' : '✗ ') + msg;
+      document.getElementById('testList').appendChild(li);
+      (ok? console.info : console.error)(msg);
+    }
+
+    (function runTests(){
+      try{
+        addResult(formatHMS(0)==='00:00:00', 'formatHMS(0) → 00:00:00');
+        addResult(formatHMS(65*1000)==='00:01:05', 'formatHMS(65s) → 00:01:05');
+        addResult(formatHMS(3*3600*1000 + 2*60*1000 + 9*1000)==='03:02:09', 'formatHMS(H:M:S) 조합');
+
+        // showBanner 동작 (DOM 반영 여부)
+        showBanner('warn','테스트 배너');
+        addResult(banner.style.display==='flex', 'showBanner 표시');
+        banner.style.display = 'none';
+        addResult(true, 'showBanner 문법 오류 없음');
+
+        // blink / dangerTime 클래스 토글 가정 테스트 (수동 토글)
+        document.body.classList.add('blinkTextStrong');
+        addResult(document.body.classList.contains('blinkTextStrong'), 'blinkTextStrong 적용');
+        document.body.classList.remove('blinkTextStrong');
+        document.body.classList.add('dangerTime');
+        addResult(document.body.classList.contains('dangerTime'), 'dangerTime 적용');
+        document.body.classList.remove('dangerTime');
+      }catch(e){
+        addResult(false, '테스트 중 예외: '+ e.message);
+      }
+    })();
+  </script>
+</body>
+</html>
